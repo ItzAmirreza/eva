@@ -33,8 +33,7 @@ const SUN_DISTANCE = 7;
 const MARKER_SIZE = 0.08;
 const MARKER_HEIGHT = 0.04;
 const IFTAR_SONG_DURATION = 90; // Duration of the song in seconds
-const IFTAR_SONG_URL =
-  "https://upload.wikimedia.org/wikipedia/en/a/a1/A_Cruel_Angel%27s_Thesis.ogg"; // Default to Evangelion theme
+const IFTAR_SONG_URL = "/assets/asma.mp3"; // Use local file from assets directory
 const PLAY_SONG_MINUTES_BEFORE_IFTAR = 5; // Play the song 5 minutes before iftar
 
 // Initialize everything when the DOM is loaded

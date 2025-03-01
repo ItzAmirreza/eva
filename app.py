@@ -15,6 +15,9 @@ app = FastAPI(
 # Mount static files
 app.mount("/static", StaticFiles(directory="."), name="static")
 
+# Mount assets directory specifically
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+
 # Define routes
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
@@ -30,7 +33,11 @@ async def get_script():
 async def get_style():
     return FileResponse("style.css")
 
-# Serve files from assets directory
-@app.get("/assets/{file_path:path}")
-async def get_asset(file_path: str):
-    return FileResponse(f"assets/{file_path}")
+# Serve specific audio file
+@app.get("/asma.mp3")
+async def get_audio():
+    return FileResponse("assets/asma.mp3")
+
+# Run the app
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
