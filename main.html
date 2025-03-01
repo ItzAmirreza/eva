@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NERV Celestial Tracking System - Ramadan 2024</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <div class="crt-overlay"></div>
+    <div class="scanline"></div>
+    <div class="glitch-overlay"></div>
+
+    <header>
+        <div class="nerv-logo">
+            <svg viewBox="0 0 100 100" class="logo">
+                <path d="M50 10 L90 90 L10 90 Z" />
+                <text x="50" y="55" text-anchor="middle">NERV</text>
+            </svg>
+        </div>
+        <div class="system-header">
+            <h1>CELESTIAL MONITORING SYSTEM <span class="version">v 1.0.0</span></h1>
+            <div class="status-bar">
+                <span class="status-item">MAGI SYSTEM ONLINE</span>
+                <span class="status-item">PATTERN: BLUE</span>
+                <span class="status-item blink">SYNCHRONIZATION: 100%</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="left-panel panel">
+            <div class="panel-header">
+                <h2>TERMINAL</h2>
+                <div class="panel-controls">
+                    <span class="control-dot"></span>
+                    <span class="control-dot"></span>
+                    <span class="control-dot"></span>
+                </div>
+            </div>
+            <div class="terminal">
+                <div class="terminal-output" id="terminal-output">
+                    <!-- Terminal text will be added here via JS -->
+                </div>
+                <div class="terminal-input-line">
+                    <span class="prompt">NERV@COMMANDER:~$</span>
+                    <span class="user-input"></span>
+                    <span class="cursor">_</span>
+                </div>
+            </div>
+            <div class="islamic-data">
+                <div class="panel-header">
+                    <h2>ISLAMIC CALENDAR</h2>
+                </div>
+                <div class="data-block">
+                    <div class="data-item">
+                        <span class="label">HIJRI DATE:</span>
+                        <span class="value" id="hijri-date">--/--/----</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="label">RAMADAN DAY:</span>
+                        <span class="value" id="ramadan-day">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="label">MOON PHASE:</span>
+                        <span class="value" id="moon-phase">--</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="shamsi-data">
+                <div class="panel-header">
+                    <h2>SHAMSI CALENDAR</h2>
+                </div>
+                <div class="data-block">
+                    <div class="data-item">
+                        <span class="label">SHAMSI DATE:</span>
+                        <span class="value" id="shamsi-date">--/--/----</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="label">PERSIAN MONTH:</span>
+                        <span class="value" id="shamsi-month">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="label">SEASON:</span>
+                        <span class="value" id="shamsi-season">--</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="gregorian-data">
+                <div class="panel-header">
+                    <h2>GREGORIAN CALENDAR</h2>
+                </div>
+                <div class="data-block">
+                    <div class="data-item">
+                        <span class="label">DATE:</span>
+                        <span class="value" id="gregorian-date">--/--/----</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="label">DAY OF YEAR:</span>
+                        <span class="value" id="day-of-year">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="label">WEEK:</span>
+                        <span class="value" id="week-number">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="center-panel">
+            <div class="globe-container">
+                <div id="globe-canvas"></div>
+                <div class="hud-overlay">
+                    <div class="crosshair"></div>
+                    <div class="circle-hud"></div>
+                    <div class="corner-brackets"></div>
+                </div>
+                <div class="coordinate-display">
+                    <span class="coord-label">LAT:</span>
+                    <span class="coord-value" id="latitude">--°--'--"</span>
+                    <span class="coord-label">LON:</span>
+                    <span class="coord-value" id="longitude">--°--'--"</span>
+                    <button id="refresh-location" class="eva-button" title="Refresh Location">
+                        <span class="button-icon">⟳</span>
+                    </button>
+                </div>
+                <div class="location-name-display">
+                    <span class="location-label">LOCATION:</span>
+                    <span class="location-value" id="location-name">INITIALIZING...</span>
+                </div>
+            </div>
+            <div class="hexagon-grid">
+                <!-- Hexagonal grid pattern will be inserted via CSS -->
+            </div>
+        </div>
+
+        <div class="right-panel panel">
+            <div class="panel-header">
+                <h2>CELESTIAL DATA</h2>
+                <div class="panel-controls">
+                    <span class="control-dot"></span>
+                    <span class="control-dot"></span>
+                    <span class="control-dot"></span>
+                </div>
+            </div>
+            <div class="celestial-data">
+                <div class="sun-data data-section">
+                    <h3>SUN TELEMETRY</h3>
+                    <div class="data-block">
+                        <div class="data-item">
+                            <span class="label">DISTANCE:</span>
+                            <span class="value" id="sun-distance">--- KM</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">AZIMUTH:</span>
+                            <span class="value" id="sun-azimuth">---°</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">ALTITUDE:</span>
+                            <span class="value" id="sun-altitude">---°</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="moon-data data-section">
+                    <h3>MOON TELEMETRY</h3>
+                    <div class="data-block">
+                        <div class="data-item">
+                            <span class="label">DISTANCE:</span>
+                            <span class="value" id="moon-distance">--- KM</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">AZIMUTH:</span>
+                            <span class="value" id="moon-azimuth">---°</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">ALTITUDE:</span>
+                            <span class="value" id="moon-altitude">---°</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">ILLUMINATION:</span>
+                            <span class="value" id="moon-illumination">---%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="prayer-times data-section">
+                    <h3>PRAYER SYNCHRONIZATION</h3>
+                    <div class="data-block">
+                        <div class="data-item">
+                            <span class="label">FAJR:</span>
+                            <span class="value" id="time-fajr">--:--</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">DHUHR:</span>
+                            <span class="value" id="time-dhuhr">--:--</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">ASR:</span>
+                            <span class="value" id="time-asr">--:--</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">MAGHRIB:</span>
+                            <span class="value" id="time-maghrib">--:--</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">ISHA:</span>
+                            <span class="value" id="time-isha">--:--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="sun-times data-section">
+                    <h3>SUN CYCLE</h3>
+                    <div class="data-block">
+                        <div class="data-item">
+                            <span class="label">SUNRISE:</span>
+                            <span class="value" id="time-sunrise">--:--</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="label">SUNSET:</span>
+                            <span class="value" id="time-sunset">--:--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="mystical-symbols">
+            <!-- Arabic and Hebrew symbols will be added via CSS as background -->
+        </div>
+        <div class="system-footer">
+            <div class="footer-text">
+                <span>NERV CELESTIAL MONITORING SYSTEM © 2024</span>
+                <span>AUTHORITY LEVEL: LCL</span>
+                <span id="local-time">TIME: --:--:--</span>
+            </div>
+            <div class="warning-indicator" id="new-moon-warning">
+                <span class="warning-text">WARNING: NEW MOON APPROACHING</span>
+            </div>
+            <div class="warning-indicator" id="iftar-notification">
+                <span class="warning-text">IFTAR APPROACHING: </span>
+                <span id="iftar-countdown">--:--</span>
+            </div>
+        </div>
+    </footer>
+
+    <audio id="iftar-audio" preload="auto"></audio>
+    <script src="script.js"></script>
+</body>
+</html>
