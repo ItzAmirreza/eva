@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  nerv-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nerv-celestial-tracker
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    # Uncomment the volumes section during development for live updates
+    # volumes:
+    #   - ./:/usr/share/nginx/html 
