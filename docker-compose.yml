@@ -6,8 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: nerv-celestial-tracker
-    ports:
-      - "3000:3000"
+    # Removed ports mapping to prevent exposing to host
     restart: unless-stopped
     # Uncomment the volumes section during development for live updates
     # volumes:
