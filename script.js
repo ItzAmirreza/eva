@@ -33,7 +33,7 @@ const SUN_DISTANCE = 7;
 const MARKER_SIZE = 0.08;
 const MARKER_HEIGHT = 0.04;
 const IFTAR_SONG_DURATION = 90; // Duration of the song in seconds
-const IFTAR_SONG_URL = "/assets/asma.mp3"; // Use local file from assets directory
+const IFTAR_SONG_URL = "assets/asma.mp3"; // Use local file from assets directory
 const PLAY_SONG_MINUTES_BEFORE_IFTAR = 5; // Play the song 5 minutes before iftar
 
 // Initialize everything when the DOM is loaded
@@ -182,8 +182,8 @@ function processCommand() {
       const countryCode = command.substring(7).trim();
       showCities(countryCode);
     } else if (command.startsWith("setloc ")) {
-      const locationCode = command.substring(7).trim();
-      setLocation(locationCode);
+      const locationInput = command.substring(7).trim();
+      setLocation(locationInput);
     } else if (command === "iplocate") {
       getIPBasedLocation();
     } else if (command === "calendar") {
@@ -216,16 +216,17 @@ function processCommand() {
 // Show help information
 function showHelp() {
   addTerminalLine("AVAILABLE COMMANDS:", "success");
-  addTerminalLine("help - Show this help message");
-  addTerminalLine("iplocate - Attempt to locate you using your IP address");
-  addTerminalLine("countries - List first page of countries with their codes");
-  addTerminalLine("countries <page> - List specific page of countries");
-  addTerminalLine("cities [country_code] - List cities in a country");
-  addTerminalLine("setloc [code] - Set your location to a specific city");
-  addTerminalLine("calendar - Refresh all calendar displays");
-  addTerminalLine(
-    "test-iftar - Test the Iftar notification and audio sequence"
-  );
+  addTerminalLine("help - Display this help information");
+  addTerminalLine("countries [page] - List available countries");
+  addTerminalLine("cities [country-code] - List cities in a country");
+  addTerminalLine("setloc [city-code or city-name] - Set your location");
+  addTerminalLine("  Examples: 'setloc us1' or 'setloc New York' or 'setloc Tokyo, Japan'");
+  addTerminalLine("iplocate - Attempt to locate based on IP address");
+  addTerminalLine("calendar - Refresh calendar displays");
+  addTerminalLine("test-iftar - Test the iftar notification sound");
+  addTerminalLine("song-url [url] - Set custom iftar song URL");
+  addTerminalLine("reset-song - Reset to default iftar song");
+  addTerminalLine("orbit [on/off] - Toggle orbit camera mode");
 }
 
 // Set a custom song URL
@@ -649,47 +650,87 @@ function initThreeJS() {
 
 // Create Earth globe with wireframe overlay
 function createGlobe() {
-  // Create sphere geometry
-  const geometry = new THREE.SphereGeometry(GLOBE_RADIUS, 32, 32);
+  // Create sphere geometry with more segments for better detail
+  const geometry = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
 
-  // Create Earth texture material
+  // Create a group to hold the Earth and its grid
+  const earthGroup = new THREE.Group();
+  scene.add(earthGroup);
+  
+  // Create a separate group for the grid and wireframe elements
+  const gridGroup = new THREE.Group();
+  earthGroup.add(gridGroup);
+
+  // Create Earth texture material with high-quality textures
   const textureLoader = new THREE.TextureLoader();
+  
+  // Load Earth textures with Evangelion-inspired color scheme
   const earthTexture = textureLoader.load(
-    "https://threejs.org/examples/textures/land_ocean_ice_cloud_2048.jpg"
+    "/static/textures/earth_daymap.jpg"
   );
+  
+  // Load bump map for terrain elevation
+  const bumpMap = textureLoader.load(
+    "/static/textures/earth_normal_map.jpg"
+  );
+  
+  // Load specular map for water reflections
+  const specularMap = textureLoader.load(
+    "/static/textures/earth_specular_map.jpg"
+  );
+
+  // Create Earth material with Evangelion-inspired colors
   const earthMaterial = new THREE.MeshPhongMaterial({
     map: earthTexture,
-    specular: new THREE.Color(0x333333),
-    shininess: 5,
+    bumpMap: bumpMap,
+    bumpScale: 0.05,
+    specularMap: specularMap,
+    specular: new THREE.Color(0x2222ff), // Blue-ish specular highlights
+    shininess: 15,
   });
 
-  // Create wireframe material
+  // Create Earth mesh
+  globe = new THREE.Mesh(geometry, earthMaterial);
+  earthGroup.add(globe);
+
+  // Create atmosphere glow effect
+  const atmosphereGeometry = new THREE.SphereGeometry(GLOBE_RADIUS * 1.02, 64, 64);
+  const atmosphereMaterial = new THREE.MeshPhongMaterial({
+    color: 0x0088ff,
+    transparent: true,
+    opacity: 0.1,
+    side: THREE.BackSide,
+  });
+  const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+  earthGroup.add(atmosphere);
+
+  // Create wireframe overlay with Evangelion-inspired colors
   const wireframeMaterial = new THREE.MeshBasicMaterial({
-    color: 0x00ffff,
+    color: 0x00ffaa, // Teal color similar to NERV terminal displays
     wireframe: true,
     transparent: true,
     opacity: 0.2,
   });
 
-  // Create Earth mesh
-  globe = new THREE.Mesh(geometry, earthMaterial);
-  scene.add(globe);
-
   // Create wireframe overlay
   const wireframe = new THREE.Mesh(geometry, wireframeMaterial);
   wireframe.scale.multiplyScalar(1.01); // Slightly larger to avoid z-fighting
-  scene.add(wireframe);
+  gridGroup.add(wireframe);
 
-  // Add latitude/longitude grid
-  addGrid();
+  // Add latitude/longitude grid to the grid group
+  addGrid(gridGroup);
+  
+  // Store the earth group and grid group for animation
+  globe.userData.group = earthGroup;
+  globe.userData.gridGroup = gridGroup;
 }
 
 // Add latitude/longitude grid to the globe
-function addGrid() {
+function addGrid(earthGroup) {
   const material = new THREE.LineBasicMaterial({
-    color: 0x00ffff,
+    color: 0x00ffaa, // Match the wireframe color
     transparent: true,
-    opacity: 0.2,
+    opacity: 0.3,
   });
 
   // Add latitude lines
@@ -711,7 +752,7 @@ function addGrid() {
 
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const line = new THREE.Line(geometry, material);
-    scene.add(line);
+    earthGroup.add(line); // Add to earth group instead of scene
   }
 
   // Add longitude lines
@@ -732,8 +773,60 @@ function addGrid() {
 
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const line = new THREE.Line(geometry, material);
-    scene.add(line);
+    earthGroup.add(line); // Add to earth group instead of scene
   }
+  
+  // Add NERV-style hexagon pattern overlay
+  addNervHexPattern(earthGroup);
+}
+
+// Add NERV-style hexagon pattern overlay to the globe
+function addNervHexPattern(earthGroup) {
+  const hexMaterial = new THREE.LineBasicMaterial({
+    color: 0xff3300, // Orange-red color similar to NERV warning indicators
+    transparent: true,
+    opacity: 0.15,
+  });
+  
+  // Create a few strategic hexagons at key locations
+  const hexLocations = [
+    { lat: 35.6762, lng: 139.6503 }, // Tokyo
+    { lat: 40.7128, lng: -74.0060 }, // New York
+    { lat: 51.5074, lng: -0.1278 },  // London
+    { lat: 21.4225, lng: 39.8262 },  // Mecca
+    { lat: -33.8688, lng: 151.2093 } // Sydney
+  ];
+  
+  hexLocations.forEach(loc => {
+    // Convert lat/lng to 3D position
+    const phi = ((90 - loc.lat) * Math.PI) / 180;
+    const theta = (loc.lng * Math.PI) / 180;
+    
+    const x = -GLOBE_RADIUS * Math.sin(phi) * Math.cos(theta);
+    const y = GLOBE_RADIUS * Math.cos(phi);
+    const z = GLOBE_RADIUS * Math.sin(phi) * Math.sin(theta);
+    
+    // Create hexagon
+    const hexPoints = [];
+    const hexSize = 0.1;
+    for (let i = 0; i <= 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      hexPoints.push(new THREE.Vector3(
+        hexSize * Math.cos(angle),
+        hexSize * Math.sin(angle),
+        0
+      ));
+    }
+    
+    const hexGeometry = new THREE.BufferGeometry().setFromPoints(hexPoints);
+    const hexagon = new THREE.Line(hexGeometry, hexMaterial);
+    
+    // Position and orient the hexagon on the globe surface
+    hexagon.position.set(x, y, z);
+    hexagon.lookAt(0, 0, 0);
+    
+    earthGroup.add(hexagon);
+  });
 }
 
 // Create moon with wireframe material
@@ -742,9 +835,9 @@ function createMoon() {
 
   const moonTextureLoader = new THREE.TextureLoader();
   const moonTexture = moonTextureLoader.load(
-    "https://threejs.org/examples/textures/planets/moon_1024.jpg"
+    "/static/textures/moon.jpg"
   );
-
+  
   // Create outer wireframe
   const wireframeMaterial = new THREE.MeshBasicMaterial({
     color: 0x00ffff,
@@ -876,9 +969,9 @@ function updateSunPosition(timeOffset = 0) {
 function animate() {
   requestAnimationFrame(animate);
 
-  // Rotate globe slowly
-  if (globe) {
-    globe.rotation.y += 0.001;
+  // Rotate the entire earth group (globe + grid) slowly
+  if (globe && globe.userData.group) {
+    globe.userData.group.rotation.y += 0.001;
   }
 
   // Update celestial positions
@@ -924,9 +1017,9 @@ function positionGlobeToLocation(lat, lng) {
   const phi = ((90 - lat) * Math.PI) / 180;
   const theta = ((lng + 180) * Math.PI) / 180;
 
-  // Set the globe rotation to center the location
+  // Set the grid rotation to center the location, but keep the earth texture fixed
   // Animate rotation for smoother effect
-  const currentRotation = globe.rotation.y;
+  const currentRotation = globe.userData.gridGroup.rotation.y;
   const targetRotation = -theta;
   const rotationDuration = 1500;
   const rotationStartTime = Date.now();
@@ -941,7 +1034,8 @@ function positionGlobeToLocation(lat, lng) {
         ? 2 * progress * progress
         : -1 + (4 - 2 * progress) * progress;
 
-    globe.rotation.y =
+    // Only rotate the grid group, not the entire earth group
+    globe.userData.gridGroup.rotation.y =
       currentRotation + (targetRotation - currentRotation) * eased;
 
     if (progress < 1) {
@@ -983,6 +1077,12 @@ function positionGlobeToLocation(lat, lng) {
     if (progress < 1) {
       requestAnimationFrame(updateCamera);
     } else {
+      // After the camera is positioned, create or update the location marker
+      // Wait a bit to make sure the grid has finished rotating
+      setTimeout(() => {
+        createLocationMarker(lat, lng);
+      }, 500);
+      
       // Hold on location for a moment to clearly see it
       setTimeout(() => {
         // Zoom out a bit for better perspective
@@ -1609,7 +1709,7 @@ function createLocationMarker(lat, lng) {
   const z = GLOBE_RADIUS * Math.sin(phi) * Math.sin(theta);
 
   // Create marker group
-  locationMarker = new THREE.Group();
+  const marker = new THREE.Group();
 
   // Create marker pin cone
   const coneGeometry = new THREE.ConeGeometry(
@@ -1668,27 +1768,36 @@ function createLocationMarker(lat, lng) {
   glow.position.set(0, 0, 0);
 
   // Add all elements to marker group
-  locationMarker.add(cone);
-  locationMarker.add(ring);
-  locationMarker.add(sphere);
-  locationMarker.add(glow);
+  marker.add(cone);
+  marker.add(ring);
+  marker.add(sphere);
+  marker.add(glow);
 
   // Position the marker group on the globe surface
-  locationMarker.position.set(x, y, z);
+  marker.position.set(x, y, z);
 
   // Make the marker look at the center of the globe
-  locationMarker.lookAt(0, 0, 0);
+  marker.lookAt(0, 0, 0);
 
   // Scale up the entire marker for better visibility
-  locationMarker.scale.set(1.2, 1.2, 1.2);
+  marker.scale.set(1.2, 1.2, 1.2);
 
-  // Add marker to scene
-  scene.add(locationMarker);
+  // Set the global locationMarker variable
+  locationMarker = marker;
 
-  // Create pulse animation
+  // Add marker to the gridGroup instead of scene so it rotates with the grid
+  if (globe && globe.userData.gridGroup) {
+    globe.userData.gridGroup.add(locationMarker);
+  } else {
+    // Fallback to scene if gridGroup is not available
+    scene.add(locationMarker);
+  }
+  
   animateMarker();
-
+  
   addTerminalLine("LOCATION MARKER DEPLOYED", "success");
+  
+  return locationMarker;
 }
 
 // Animate the location marker
@@ -1725,232 +1834,11 @@ function animateMarker() {
   pulseAnimation();
 }
 
-// Toggle orbit camera mode
-function toggleOrbitMode(enable) {
-  orbitControls = enable;
-
-  if (enable) {
-    // Store current camera position for returning later
-    camera.userData.lastPosition = camera.position.clone();
-  } else {
-    // Restore previous camera position if available
-    if (camera.userData.lastPosition) {
-      camera.position.copy(camera.userData.lastPosition);
-      camera.lookAt(0, 0, 0);
-    }
-  }
-}
-
-// Function to fetch country data
-function fetchCountryData() {
-  // We'll use the restcountries.com API to get country data
-  addTerminalLine("DOWNLOADING COUNTRY DATABASE...");
-
-  fetch("https://restcountries.com/v3.1/all?fields=name,cca2")
-    .then((response) => response.json())
-    .then((data) => {
-      // Process and store country data
-      data.forEach((country) => {
-        countryData[country.cca2.toLowerCase()] = country.name.common;
-      });
-      addTerminalLine("COUNTRY DATABASE SYNCHRONIZED", "success");
-    })
-    .catch((error) => {
-      addTerminalLine(`ERROR LOADING COUNTRY DATA: ${error.message}`, "error");
-    });
-}
-
-// Function to show list of countries
-function showCountries(page) {
-  if (Object.keys(countryData).length === 0) {
-    addTerminalLine("COUNTRY DATABASE NOT AVAILABLE", "error");
-    return;
-  }
-
-  addTerminalLine("AVAILABLE COUNTRIES:", "success");
-
-  // Get sorted countries
-  const countries = Object.entries(countryData).sort((a, b) =>
-    a[1].localeCompare(b[1])
-  );
-
-  // Display countries in a paginated format (10 at a time)
-  const countriesPerPage = 10;
-  const totalPages = Math.ceil(countries.length / countriesPerPage);
-
-  addTerminalLine(
-    `SHOWING PAGE ${page}/${totalPages} - USE 'countries <page>' FOR MORE`,
-    "info"
-  );
-
-  // Show first page by default
-  const pageCountries = countries.slice(
-    (page - 1) * countriesPerPage,
-    page * countriesPerPage
-  );
-
-  pageCountries.forEach(([code, name]) => {
-    addTerminalLine(`${code.toUpperCase()}: ${name}`);
-  });
-
-  addTerminalLine("USE 'cities [country_code]' TO VIEW CITIES", "success");
-}
-
-// Function to fetch cities for a country
-function showCities(countryCode) {
-  if (!countryCode) {
-    addTerminalLine("PLEASE SPECIFY A COUNTRY CODE", "error");
-    addTerminalLine("EXAMPLE: cities us", "warning");
-    return;
-  }
-
-  countryCode = countryCode.toLowerCase();
-
-  if (!countryData[countryCode]) {
-    addTerminalLine(`UNKNOWN COUNTRY CODE: ${countryCode}`, "error");
-    addTerminalLine("USE 'countries' TO SEE AVAILABLE CODES", "warning");
-    return;
-  }
-
-  const countryName = countryData[countryCode];
-  addTerminalLine(`FETCHING CITIES FOR ${countryName.toUpperCase()}...`);
-
-  // If we already have the data cached, use it
-  if (cityData[countryCode]) {
-    displayCities(countryCode);
-    return;
-  }
-
-  // Use a fallback API and provide some default data for common countries
-  // Default data for Austria if the API fails
-  const fallbackCities = {
-    at: [
-      { name: "Vienna", lat: 48.2082, lng: 16.3738, population: 1911191 },
-      { name: "Graz", lat: 47.0707, lng: 15.4395, population: 269997 },
-      { name: "Linz", lat: 48.3059, lng: 14.2862, population: 200841 },
-      { name: "Salzburg", lat: 47.8095, lng: 13.055, population: 150887 },
-      { name: "Innsbruck", lat: 47.2682, lng: 11.3923, population: 124579 },
-      { name: "Klagenfurt", lat: 46.6249, lng: 14.3072, population: 99110 },
-      { name: "Villach", lat: 46.6111, lng: 13.8558, population: 61879 },
-      { name: "Wels", lat: 48.1575, lng: 14.0289, population: 60478 },
-      { name: "Sankt Pölten", lat: 48.2047, lng: 15.6256, population: 52145 },
-      { name: "Dornbirn", lat: 47.4125, lng: 9.7417, population: 49278 },
-    ],
-  };
-
-  // Check if we have fallback data for this country
-  if (fallbackCities[countryCode]) {
-    cityData[countryCode] = fallbackCities[countryCode].map((city, index) => {
-      return {
-        code: `${countryCode}${index + 1}`,
-        name: city.name,
-        lat: city.lat,
-        lng: city.lng,
-        population: city.population,
-      };
-    });
-
-    displayCities(countryCode);
-    return;
-  }
-
-  // Using the GeoNames API as a fallback for other countries
-  const username = "demo"; // Free demo account, limited usage
-
-  // Use HTTPS for the API request to avoid mixed content issues
-  fetch(
-    `https://secure.geonames.org/searchJSON?country=${countryCode}&featureClass=P&maxRows=20&orderby=population&username=${username}`
-  )
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`API responded with status: ${response.status}`);
-      }
-      return response.json();
-    })
-    .then((data) => {
-      if (data && data.geonames && data.geonames.length > 0) {
-        // Store the cities data
-        cityData[countryCode] = data.geonames.map((city, index) => {
-          return {
-            code: `${countryCode}${index + 1}`,
-            name: city.name,
-            lat: city.lat,
-            lng: city.lng,
-            population: city.population,
-          };
-        });
-
-        displayCities(countryCode);
-      } else {
-        // If no cities found in API response, throw an error to trigger the fallback
-        throw new Error("No cities found in API response");
-      }
-    })
-    .catch((error) => {
-      addTerminalLine(`API ERROR: ${error.message}`, "warning");
-
-      // Use a simplified approach to generate default cities
-      // Generate major cities for any country where API fails
-      addTerminalLine("USING FALLBACK CITY DATABASE...", "warning");
-
-      // Create some generic city data based on the country's name
-      const countryNameNoSpaces = countryName.replace(/\s+/g, "");
-      cityData[countryCode] = [
-        {
-          code: `${countryCode}1`,
-          name: `Capital of ${countryName}`,
-          lat: 0,
-          lng: 0,
-          population: "Unknown",
-        },
-        {
-          code: `${countryCode}2`,
-          name: `${countryNameNoSpaces}ville`,
-          lat: 0,
-          lng: 0,
-          population: "Unknown",
-        },
-        {
-          code: `${countryCode}3`,
-          name: `${countryName} City`,
-          lat: 0,
-          lng: 0,
-          population: "Unknown",
-        },
-      ];
-
-      displayCities(countryCode);
-    });
-}
-
-// Display cities for a specific country
-function displayCities(countryCode) {
-  const countryName = countryData[countryCode];
-  const cities = cityData[countryCode];
-
-  addTerminalLine(`CITIES IN ${countryName.toUpperCase()}:`, "success");
-
-  cities.forEach((city) => {
-    addTerminalLine(
-      `${city.code.toUpperCase()}: ${city.name} (Pop: ${
-        city.population || "unknown"
-      })`
-    );
-  });
-
-  addTerminalLine("USE 'setloc [code]' TO SET YOUR LOCATION", "success");
-}
-
-// Set location using a city code
-function setLocation(code) {
-  if (!cityData[code]) {
-    addTerminalLine("LOCATION DATA NOT FOUND", "error");
-    return;
-  }
-
-  const city = cityData[code];
-  userLocation.lat = parseFloat(city.latitude);
-  userLocation.lng = parseFloat(city.longitude);
+// Function to set location by coordinates and update UI/globe
+function setLocationByCoordinates(lat, lng, displayName) {
+  userLocation.lat = lat;
+  userLocation.lng = lng;
+  locationName = displayName;
 
   // Update the UI
   document.getElementById("latitude").textContent = formatCoordinate(
@@ -1961,23 +1849,13 @@ function setLocation(code) {
     userLocation.lng,
     false
   );
-  document.getElementById("location-name").textContent = `${city.name}, ${
-    countryData[city.country] || city.country
-  }`;
-  locationName = `${city.name}, ${countryData[city.country] || city.country}`;
+  document.getElementById("location-name").textContent = locationName;
 
   // Update the globe position
   positionGlobeToLocation(userLocation.lat, userLocation.lng);
 
-  // Add a marker at the location
-  if (locationMarker) {
-    scene.remove(locationMarker);
-  }
-  locationMarker = createLocationMarker(userLocation.lat, userLocation.lng);
-  scene.add(locationMarker);
-
-  // Start animating the marker
-  animateMarker();
+  // Create and add a marker at the location
+  createLocationMarker(userLocation.lat, userLocation.lng);
 
   // Get new prayer times
   getPrayerTimes(userLocation.lat, userLocation.lng);
@@ -1997,13 +1875,19 @@ function getIPBasedLocation() {
 
   // Use ipapi.co for IP-based geolocation
   fetch("https://ipapi.co/json/")
-    .then((response) => response.json())
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`API responded with status: ${response.status}`);
+      }
+      return response.json();
+    })
     .then((data) => {
-      if (data.latitude && data.longitude) {
+      if (data && data.latitude && data.longitude) {
+        // Set user location
         userLocation.lat = data.latitude;
         userLocation.lng = data.longitude;
 
-        // Update the UI with coordinates
+        // Update UI
         document.getElementById("latitude").textContent = formatCoordinate(
           userLocation.lat,
           true
@@ -2014,44 +1898,45 @@ function getIPBasedLocation() {
         );
 
         // Set location name
-        locationName = data.city
+        const locationDisplay = data.city
           ? `${data.city}, ${data.country_name}`
           : data.country_name;
-        document.getElementById("location-name").textContent = locationName;
+        document.getElementById("location-name").textContent = locationDisplay;
+        locationName = locationDisplay;
 
-        addTerminalLine(`LOCATION IDENTIFIED: ${locationName}`, "success");
+        addTerminalLine(
+          `LOCATION IDENTIFIED: ${locationDisplay}`,
+          "success"
+        );
 
-        // Update globe and fetch data for the new location
-        if (globe) {
-          positionGlobeToLocation(userLocation.lat, userLocation.lng);
-          createLocationMarker(userLocation.lat, userLocation.lng);
-        }
-
-        // Fetch prayer times and celestial data for the new location
+        // Update prayer times and other data
         getPrayerTimes(userLocation.lat, userLocation.lng);
         getCelestialData(userLocation.lat, userLocation.lng);
         getIslamicDate();
         getShamsiDate();
         getGregorianDate();
+
+        // Force an immediate check for iftar time with the new location
+        setTimeout(checkIftarTime, 1000);
+
+        // Update the globe view to center on user's location
+        if (globe) {
+          positionGlobeToLocation(userLocation.lat, userLocation.lng);
+          createLocationMarker(userLocation.lat, userLocation.lng);
+        }
       } else {
         addTerminalLine("IP GEOLOCATION FAILED", "error");
         addTerminalLine(
-          "REASON: " + (data.error || "UNKNOWN ERROR"),
-          "warning"
-        );
-        // All geolocation methods failed, use default location
-        addTerminalLine(
-          "ALL GEOLOCATION METHODS FAILED, USING DEFAULT LOCATION",
+          "USING DEFAULT LOCATION (MECCA, SAUDI ARABIA)",
           "warning"
         );
         useDefaultLocation();
       }
     })
     .catch((error) => {
-      addTerminalLine(`IP GEOLOCATION ERROR: ${error.message}`, "error");
-      // All geolocation methods failed, use default location
+      addTerminalLine(`GEOLOCATION ERROR: ${error.message}`, "error");
       addTerminalLine(
-        "ALL GEOLOCATION METHODS FAILED, USING DEFAULT LOCATION",
+        "USING DEFAULT LOCATION (MECCA, SAUDI ARABIA)",
         "warning"
       );
       useDefaultLocation();
@@ -2112,7 +1997,7 @@ function playIftarSong() {
     const deg = Math.PI / 180;
 
     for (let i = 0; i < n_samples; ++i) {
-      const x = (i * 2) / n_samples - 1;
+      const x = (i / n_samples) * 2 - 1;
       curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
     }
     return curve;
@@ -2407,5 +2292,280 @@ function checkIftarTime() {
         timeUntilIftarSeconds % 60
       }s`
     );
+  }
+}
+
+// Function to fetch country data
+function fetchCountryData() {
+  // We'll use the restcountries.com API to get country data
+  addTerminalLine("DOWNLOADING COUNTRY DATABASE...");
+
+  fetch("https://restcountries.com/v3.1/all?fields=name,cca2")
+    .then((response) => response.json())
+    .then((data) => {
+      // Process and store country data
+      data.forEach((country) => {
+        countryData[country.cca2.toLowerCase()] = country.name.common;
+      });
+      addTerminalLine("COUNTRY DATABASE SYNCHRONIZED", "success");
+    })
+    .catch((error) => {
+      addTerminalLine(`ERROR LOADING COUNTRY DATA: ${error.message}`, "error");
+    });
+}
+
+// Function to show list of countries
+function showCountries(page) {
+  if (Object.keys(countryData).length === 0) {
+    addTerminalLine("COUNTRY DATABASE NOT AVAILABLE", "error");
+    return;
+  }
+
+  addTerminalLine("AVAILABLE COUNTRIES:", "success");
+
+  // Get sorted countries
+  const countries = Object.entries(countryData).sort((a, b) =>
+    a[1].localeCompare(b[1])
+  );
+
+  // Display countries in a paginated format (10 at a time)
+  const countriesPerPage = 10;
+  const totalPages = Math.ceil(countries.length / countriesPerPage);
+
+  addTerminalLine(
+    `SHOWING PAGE ${page}/${totalPages} - USE 'countries <page>' FOR MORE`,
+    "info"
+  );
+
+  // Show first page by default
+  const pageCountries = countries.slice(
+    (page - 1) * countriesPerPage,
+    page * countriesPerPage
+  );
+
+  pageCountries.forEach(([code, name]) => {
+    addTerminalLine(`${code.toUpperCase()}: ${name}`);
+  });
+
+  addTerminalLine("USE 'cities [country_code]' TO VIEW CITIES", "success");
+}
+
+// Function to fetch cities for a country
+function showCities(countryCode) {
+  if (!countryCode) {
+    addTerminalLine("PLEASE SPECIFY A COUNTRY CODE", "error");
+    addTerminalLine("EXAMPLE: cities us", "warning");
+    return;
+  }
+
+  countryCode = countryCode.toLowerCase();
+
+  if (!countryData[countryCode]) {
+    addTerminalLine(`UNKNOWN COUNTRY CODE: ${countryCode}`, "error");
+    addTerminalLine("USE 'countries' TO SEE AVAILABLE CODES", "warning");
+    return;
+  }
+
+  const countryName = countryData[countryCode];
+  addTerminalLine(`FETCHING CITIES FOR ${countryName.toUpperCase()}...`);
+
+  // If we already have the data cached, use it
+  if (cityData[countryCode]) {
+    displayCities(countryCode);
+    return;
+  }
+
+  // Use a fallback API and provide some default data for common countries
+  // Default data for Austria if the API fails
+  const fallbackCities = {
+    at: [
+      { name: "Vienna", lat: 48.2082, lng: 16.3738, population: 1911191 },
+      { name: "Graz", lat: 47.0707, lng: 15.4395, population: 269997 },
+      { name: "Linz", lat: 48.3059, lng: 14.2862, population: 200841 },
+      { name: "Salzburg", lat: 47.8095, lng: 13.055, population: 150887 },
+      { name: "Innsbruck", lat: 47.2682, lng: 11.3923, population: 124579 },
+      { name: "Klagenfurt", lat: 46.6249, lng: 14.3072, population: 99110 },
+      { name: "Villach", lat: 46.6111, lng: 13.8558, population: 61879 },
+      { name: "Wels", lat: 48.1575, lng: 14.0289, population: 60478 },
+      { name: "Sankt Pölten", lat: 48.2047, lng: 15.6256, population: 52145 },
+      { name: "Dornbirn", lat: 47.4125, lng: 9.7417, population: 49278 },
+    ],
+  };
+
+  // Check if we have fallback data for this country
+  if (fallbackCities[countryCode]) {
+    cityData[countryCode] = fallbackCities[countryCode].map((city, index) => {
+      return {
+        code: `${countryCode}${index + 1}`,
+        name: city.name,
+        lat: city.lat,
+        lng: city.lng,
+        population: city.population,
+      };
+    });
+
+    displayCities(countryCode);
+    return;
+  }
+
+  // Using the GeoNames API as a fallback for other countries
+  const username = "demo"; // Free demo account, limited usage
+
+  // Use HTTPS for the API request to avoid mixed content issues
+  fetch(
+    `https://secure.geonames.org/searchJSON?country=${countryCode}&featureClass=P&maxRows=20&orderby=population&username=${username}`
+  )
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`API responded with status: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((data) => {
+      if (data && data.geonames && data.geonames.length > 0) {
+        // Store the cities data
+        cityData[countryCode] = data.geonames.map((city, index) => {
+          return {
+            code: `${countryCode}${index + 1}`,
+            name: city.name,
+            lat: city.lat,
+            lng: city.lng,
+            population: city.population,
+          };
+        });
+
+        displayCities(countryCode);
+      } else {
+        // If no cities found in API response, throw an error to trigger the fallback
+        throw new Error("No cities found in API response");
+      }
+    })
+    .catch((error) => {
+      addTerminalLine(`API ERROR: ${error.message}`, "warning");
+
+      // Use a simplified approach to generate default cities
+      // Generate major cities for any country where API fails
+      addTerminalLine("USING FALLBACK CITY DATABASE...", "warning");
+
+      // Create some generic city data based on the country's name
+      const countryNameNoSpaces = countryName.replace(/\s+/g, "");
+      cityData[countryCode] = [
+        {
+          code: `${countryCode}1`,
+          name: `Capital of ${countryName}`,
+          lat: 0,
+          lng: 0,
+          population: "Unknown",
+        },
+        {
+          code: `${countryCode}2`,
+          name: `${countryNameNoSpaces}ville`,
+          lat: 0,
+          lng: 0,
+          population: "Unknown",
+        },
+        {
+          code: `${countryCode}3`,
+          name: `${countryName} City`,
+          lat: 0,
+          lng: 0,
+          population: "Unknown",
+        },
+      ];
+
+      displayCities(countryCode);
+    });
+}
+
+// Display cities for a specific country
+function displayCities(countryCode) {
+  const countryName = countryData[countryCode];
+  const cities = cityData[countryCode];
+
+  addTerminalLine(`CITIES IN ${countryName.toUpperCase()}:`, "success");
+
+  cities.forEach((city) => {
+    addTerminalLine(
+      `${city.code.toUpperCase()}: ${city.name} (Pop: ${
+        city.population || "unknown"
+      })`
+    );
+  });
+
+  addTerminalLine("USE 'setloc [code]' TO SET YOUR LOCATION", "success");
+}
+
+// Set location using a city code or name
+function setLocation(input) {
+  // Check if input is a city code (e.g., "us1", "fr2")
+  if (/^[a-z]{2}\d+$/.test(input)) {
+    const countryCode = input.substring(0, 2);
+    
+    // If we have this country's cities data
+    if (cityData[countryCode]) {
+      const city = cityData[countryCode].find(city => city.code === input);
+      if (city) {
+        setLocationByCoordinates(
+          parseFloat(city.lat), 
+          parseFloat(city.lng), 
+          `${city.name}, ${countryData[countryCode] || countryCode.toUpperCase()}`
+        );
+        return;
+      }
+    }
+  }
+  
+  // If not a valid city code, try to geocode the input as a city name
+  geocodeLocation(input);
+}
+
+// Function to geocode a location name to coordinates
+function geocodeLocation(locationName) {
+  addTerminalLine(`SEARCHING FOR LOCATION: ${locationName}...`);
+  
+  // Use OpenStreetMap Nominatim API for geocoding (free and reliable)
+  fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locationName)}&format=json&limit=1`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`API responded with status: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(data => {
+      if (data && data.length > 0) {
+        const result = data[0];
+        const lat = parseFloat(result.lat);
+        const lon = parseFloat(result.lon);
+        const displayName = result.display_name;
+        
+        // Set the location using the coordinates and display name
+        setLocationByCoordinates(lat, lon, displayName);
+      } else {
+        addTerminalLine(`LOCATION NOT FOUND: ${locationName}`, "error");
+        addTerminalLine("TRY A DIFFERENT LOCATION NAME OR FORMAT", "warning");
+        addTerminalLine("EXAMPLE: 'setloc New York' OR 'setloc Paris, France'", "warning");
+      }
+    })
+    .catch(error => {
+      addTerminalLine(`GEOCODING ERROR: ${error.message}`, "error");
+      addTerminalLine("LOCATION SERVICE UNAVAILABLE", "error");
+      addTerminalLine("TRY USING A CITY CODE INSTEAD", "warning");
+      addTerminalLine("USE 'countries' TO SEE AVAILABLE COUNTRY CODES", "warning");
+    });
+}
+
+// Toggle orbit camera mode
+function toggleOrbitMode(enable) {
+  orbitControls = enable;
+
+  if (enable) {
+    // Store current camera position for returning later
+    camera.userData.lastPosition = camera.position.clone();
+  } else {
+    // Restore previous camera position if available
+    if (camera.userData.lastPosition) {
+      camera.position.copy(camera.userData.lastPosition);
+      camera.lookAt(0, 0, 0);
+    }
   }
 }
