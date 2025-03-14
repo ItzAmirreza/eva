@@ -23,13 +23,24 @@ let iftarCountdownInterval; // Interval for updating the iftar countdown
 let maghribTime; // Store Maghrib/Iftar time
 let sunsetTime; // Store sunset time
 let sunriseTime; // Store sunrise time
+let cinematicMode = true; // Enable cinematic camera mode by default
+let cinematicViewTimer = null; // Timer for switching cinematic views
+let currentCinematicView = 0; // Current cinematic view index
+let lastCinematicViewChange = 0; // Last time the view changed
+let inCameraTransition = false; // Flag to track if a camera transition is in progress
+let visualEffects = { // Store visual effects objects
+  atField: null,
+  comets: [],
+  shootingStars: []
+};
+let clock = null; // THREE.Clock for animation timing
 
 // Constants
 const GLOBE_RADIUS = 1;
-const MOON_RADIUS = 0.2;
-const SUN_RADIUS = 0.5;
-const MOON_DISTANCE = 3;
-const SUN_DISTANCE = 7;
+const MOON_RADIUS = 0.27;  // Increased from 0.2 to be more proportional
+const SUN_RADIUS = 2.5;    // Increased from 0.5 to be more proportional but still visible at a distance
+const MOON_DISTANCE = 4;   // Increased from 3 to give more space
+const SUN_DISTANCE = 15;   // Increased from 7 to better simulate solar system scale
 const MARKER_SIZE = 0.08;
 const MARKER_HEIGHT = 0.04;
 const IFTAR_SONG_DURATION = 90; // Duration of the song in seconds
@@ -64,7 +75,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initial check for iftar time
   setTimeout(checkIftarTime, 3000);
+
+  // Initialize cinematic camera mode
+  initCinematicMode();
 });
+
+// Initialize cinematic camera mode
+function initCinematicMode() {
+  // Set initial cinematic mode state - enable it by default
+  cinematicMode = true;
+  orbitControls = false;
+  inCameraTransition = false;
+  
+  // Initialize cinematic views
+  currentCinematicView = 0;
+  lastCinematicViewChange = Date.now();
+  
+  // Set initial camera position to the first cinematic view
+  if (cinematicViews && cinematicViews.length > 0 && camera) {
+    const firstView = cinematicViews[0];
+    camera.position.copy(firstView.position);
+    camera.lookAt(firstView.target);
+  }
+}
 
 // Initialize the terminal with welcome messages
 function initTerminal() {
@@ -202,6 +235,10 @@ function processCommand() {
           "error"
         );
       }
+    } else if (command === "toggle-cinematic") {
+      toggleCinematicMode(!cinematicMode);
+    } else if (command === "toggle-orbit") {
+      toggleOrbitMode(!orbitControls);
     } else {
       addTerminalLine(`UNKNOWN COMMAND: ${command}`, "error");
       addTerminalLine("TYPE 'help' FOR AVAILABLE COMMANDS", "warning");
@@ -224,6 +261,8 @@ function showHelp() {
   addTerminalLine("iplocate - Attempt to locate based on IP address");
   addTerminalLine("calendar - Refresh calendar displays");
   addTerminalLine("test-iftar - Test the iftar notification sound");
+  addTerminalLine("toggle-cinematic - Toggle cinematic camera mode");
+  addTerminalLine("toggle-orbit - Toggle orbit camera mode");
   addTerminalLine("song-url [url] - Set custom iftar song URL");
   addTerminalLine("reset-song - Reset to default iftar song");
   addTerminalLine("orbit [on/off] - Toggle orbit camera mode");
@@ -562,6 +601,28 @@ function getReverseGeocode(lat, lng) {
         locationName = displayName || "UNKNOWN LOCATION";
         document.getElementById("location-name").textContent = locationName;
         addTerminalLine(`LOCATION IDENTIFIED: ${locationName}`, "success");
+
+        // Update globe and fetch data for the new location
+        if (globe) {
+          positionGlobeToLocation(userLocation.lat, userLocation.lng);
+          createLocationMarker(userLocation.lat, userLocation.lng);
+        }
+
+        // Fetch prayer times and celestial data for the new location
+        getPrayerTimes(userLocation.lat, userLocation.lng);
+        getCelestialData(userLocation.lat, userLocation.lng);
+        getIslamicDate();
+        getShamsiDate();
+        getGregorianDate();
+
+        // Force an immediate check for iftar time with the new location
+        setTimeout(checkIftarTime, 1000);
+
+        // Update the globe view to center on user's location
+        if (globe) {
+          positionGlobeToLocation(userLocation.lat, userLocation.lng);
+          createLocationMarker(userLocation.lat, userLocation.lng);
+        }
       } else {
         locationName = "UNIDENTIFIED LOCATION";
         document.getElementById("location-name").textContent = locationName;
@@ -570,7 +631,8 @@ function getReverseGeocode(lat, lng) {
     })
     .catch((error) => {
       document.getElementById("location-name").classList.remove("loading");
-      document.getElementById("location-name").textContent = "GEOCODING ERROR";
+      document.getElementById("location-name").textContent =
+        "GEOCODING ERROR";
 
       locationName = "GEOCODING ERROR";
       document.getElementById("location-name").textContent = locationName;
@@ -602,6 +664,9 @@ function initThreeJS() {
   // Create scene
   scene = new THREE.Scene();
 
+  // Create clock for animation timing
+  clock = new THREE.Clock();
+
   // Create camera
   camera = new THREE.PerspectiveCamera(
     45, // Field of view
@@ -612,20 +677,27 @@ function initThreeJS() {
   );
   camera.position.z = 5;
 
-  // Create renderer
-  renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  // Create renderer with better quality settings
+  renderer = new THREE.WebGLRenderer({ 
+    alpha: true, 
+    antialias: true,
+    logarithmicDepthBuffer: true 
+  });
   renderer.setSize(
     document.getElementById("globe-canvas").clientWidth,
     document.getElementById("globe-canvas").clientHeight
   );
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
   document.getElementById("globe-canvas").appendChild(renderer.domElement);
 
   // Add ambient light
-  const ambientLight = new THREE.AmbientLight(0x404040, 1);
+  const ambientLight = new THREE.AmbientLight(0x404050, 1);
   scene.add(ambientLight);
 
   // Add directional light (simulating sun)
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
   directionalLight.position.set(5, 3, 5);
   scene.add(directionalLight);
 
@@ -640,6 +712,9 @@ function initThreeJS() {
 
   // Add stars
   createStars();
+  
+  // Add celestial phenomena (comets, shooting stars)
+  createCelestialPhenomena();
 
   // Start animation loop
   animate();
@@ -824,7 +899,9 @@ function addNervHexPattern(earthGroup) {
     // Position and orient the hexagon on the globe surface
     hexagon.position.set(x, y, z);
     hexagon.lookAt(0, 0, 0);
+    hexagon.rotateOnAxis(new THREE.Vector3(0, 0, 1), Math.PI / 6); // Rotate to make flat edges horizontal
     
+    // Add to group
     earthGroup.add(hexagon);
   });
 }
@@ -834,6 +911,8 @@ function createMoon() {
   const geometry = new THREE.SphereGeometry(MOON_RADIUS, 16, 16);
 
   const moonTextureLoader = new THREE.TextureLoader();
+  
+  // Load moon textures with Evangelion-inspired color scheme
   const moonTexture = moonTextureLoader.load(
     "/static/textures/moon.jpg"
   );
@@ -875,7 +954,7 @@ function createSun() {
   const material = new THREE.MeshPhongMaterial({
     color: 0xffff00,
     emissive: 0xffff00,
-    emissiveIntensity: 1,
+    emissiveIntensity: 1.2,  // Increased intensity
     transparent: true,
     opacity: 0.9,
   });
@@ -935,12 +1014,13 @@ function updateMoonPosition(timeOffset = 0) {
 
   // Use current date/time to determine moon position
   // This is a simplified calculation and not astronomically accurate
-  const dayOfYear = getDayOfYear(now);
-  const hourOfDay = now.getHours() + now.getMinutes() / 60;
-
-  // Calculate angle for moon position (simplified)
-  const moonAngle = ((dayOfYear + timeOffset) / 365) * Math.PI * 2;
-  const moonDailyAngle = (hourOfDay / 24) * Math.PI * 2;
+  const epochDate = new Date(2000, 0, 6, 18, 14, 0); // Known new moon
+  const synodic = 29.530588853; // Synodic month in days
+  const elapsed = (now - epochDate) / (1000 * 60 * 60 * 24); // Days since epoch
+  const cyclePosition = (elapsed % synodic) / synodic; // Position in cycle (0 to 1)
+  
+  // Calculate angle for moon position
+  const moonAngle = cyclePosition * Math.PI * 2;
 
   // Position moon in orbit
   moon.position.x = Math.sin(moonAngle) * MOON_DISTANCE;
@@ -969,6 +1049,10 @@ function updateSunPosition(timeOffset = 0) {
 function animate() {
   requestAnimationFrame(animate);
 
+  // Get delta time for smooth animations
+  const delta = clock ? clock.getDelta() : 0.016;
+  const time = Date.now() * 0.001;
+
   // Rotate the entire earth group (globe + grid) slowly
   if (globe && globe.userData.group) {
     globe.userData.group.rotation.y += 0.001;
@@ -977,6 +1061,60 @@ function animate() {
   // Update celestial positions
   updateMoonPosition();
   updateSunPosition();
+  
+  // Update comets
+  if (visualEffects && visualEffects.comets) {
+    visualEffects.comets.forEach(comet => {
+      // Update orbit position
+      comet.orbit.angle += comet.orbit.speed * comet.orbit.direction;
+      
+      // Calculate position
+      const x = Math.cos(comet.orbit.angle) * comet.orbit.radius;
+      const z = Math.sin(comet.orbit.angle) * comet.orbit.radius;
+      const y = Math.sin(comet.orbit.angle * 0.5) * comet.orbit.radius * Math.sin(comet.orbit.tilt);
+      
+      // Update position
+      comet.mesh.position.set(x, y, z);
+      
+      // Make comet face along its orbit
+      const tangent = new THREE.Vector3(
+        -Math.sin(comet.orbit.angle) * comet.orbit.direction,
+        Math.cos(comet.orbit.angle * 0.5) * 0.5 * Math.sin(comet.orbit.tilt) * comet.orbit.direction,
+        Math.cos(comet.orbit.angle) * comet.orbit.direction
+      );
+      
+      comet.mesh.lookAt(comet.mesh.position.clone().add(tangent));
+    });
+  }
+  
+  // Update shooting stars
+  if (visualEffects && visualEffects.shootingStars) {
+    for (let i = visualEffects.shootingStars.length - 1; i >= 0; i--) {
+      const star = visualEffects.shootingStars[i];
+      const elapsed = Date.now() - star.startTime;
+      
+      if (elapsed >= star.duration) {
+        // Remove expired shooting star
+        scene.remove(star.mesh);
+        visualEffects.shootingStars.splice(i, 1);
+      } else {
+        // Fade out based on elapsed time
+        const progress = elapsed / star.duration;
+        star.mesh.material.opacity = 1 - progress;
+      }
+    }
+  }
+
+  // Handle cinematic camera mode
+  if (cinematicMode && !orbitControls && !inCameraTransition) {
+    const now = Date.now();
+    // Change view every 25-35 seconds
+    if (now - lastCinematicViewChange > getRandomViewDuration()) {
+      console.log("Switching to next cinematic view");
+      switchToNextCinematicView();
+      lastCinematicViewChange = now;
+    }
+  }
 
   // Orbital camera mode
   if (orbitControls) {
@@ -1260,7 +1398,6 @@ function getIslamicDate() {
       }
     })
     .catch((error) => {
-      // Remove loading classes
       document.getElementById("hijri-date").classList.remove("loading");
       document.getElementById("ramadan-day").classList.remove("loading");
 
@@ -1530,8 +1667,8 @@ function simulateCelestialData() {
   const epochDate = new Date(2000, 0, 6, 18, 14, 0); // Known new moon
   const synodic = 29.530588853; // Synodic month in days
   const elapsed = (now - epochDate) / (1000 * 60 * 60 * 24); // Days since epoch
-  const cycles = elapsed / synodic;
-  moonPhase = cycles - Math.floor(cycles); // Fractional part represents phase
+  const cyclePosition = (elapsed % synodic) / synodic; // Position in cycle (0 to 1)
+  moonPhase = cyclePosition * Math.PI * 2; // Fractional part represents phase as radians
 
   // Remove loading classes after a short delay (simulating API call)
   setTimeout(() => {
@@ -1567,7 +1704,7 @@ function simulateCelestialData() {
       phaseEmoji = "🌖";
       isNewMoonApproaching = false;
     } else if (moonPhase < 0.8) {
-      phaseText = "THIRD QUARTER";
+      phaseText = "LAST QUARTER";
       phaseEmoji = "🌗";
       isNewMoonApproaching = false;
     } else {
@@ -1614,18 +1751,17 @@ function simulateCelestialData() {
 
     // Simulate azimuth and altitude based on time of day and location
     const hour = now.getHours() + now.getMinutes() / 60;
-    const dayProgress = hour / 24; // 0 to 1 through the day
 
     // Sun calculations - simple approximation
-    const sunAltitude = Math.sin((dayProgress * 2 - 0.5) * Math.PI) * 90;
-    const sunAzimuth = (dayProgress * 360) % 360;
+    const sunAltitude = Math.sin((hour / 24) * 2 * Math.PI - Math.PI / 2) * 90;
+    const sunAzimuth = (hour / 24) * 360;
 
     // Moon calculations - offset from sun by moonPhase * 360 degrees
     const moonAzimuth = (sunAzimuth + moonPhase * 360) % 360;
     // Moon altitude is shifted from sun by phase
     const moonAltitudeShift = moonPhase * 12; // Hours shift
-    const moonDayProgress = (dayProgress + moonAltitudeShift / 24) % 1;
-    const moonAltitude = Math.sin((moonDayProgress * 2 - 0.5) * Math.PI) * 80;
+    const moonDayProgress = (hour + moonAltitudeShift / 24) % 1;
+    const moonAltitude = Math.sin((moonDayProgress * 2 - 1) * Math.PI) * 80;
 
     document.getElementById("sun-azimuth").textContent = `${sunAzimuth.toFixed(
       1
@@ -1694,144 +1830,145 @@ function getDayOfYear(date) {
 
 // Create a location marker at the specified lat/lng on the globe
 function createLocationMarker(lat, lng) {
-  // If a marker already exists, remove it
-  if (locationMarker) {
-    scene.remove(locationMarker);
+  // Create marker group if it doesn't exist
+  if (!globe.userData) {
+    globe.userData = {};
+  }
+  
+  if (!globe.userData.markerGroup) {
+    globe.userData.markerGroup = new THREE.Group();
+    globe.add(globe.userData.markerGroup);
   }
 
-  // Convert lat/lng to 3D position on globe
+  // If a marker already exists, remove it
+  if (locationMarker) {
+    globe.userData.markerGroup.remove(locationMarker);
+  }
+
+  // Convert lat/lng to 3D position
   const phi = ((90 - lat) * Math.PI) / 180;
   const theta = ((lng + 180) * Math.PI) / 180;
 
-  // Calculate position on the globe's surface
-  const x = -GLOBE_RADIUS * Math.sin(phi) * Math.cos(theta);
-  const y = GLOBE_RADIUS * Math.cos(phi);
-  const z = GLOBE_RADIUS * Math.sin(phi) * Math.sin(theta);
+  const x = -(GLOBE_RADIUS + 0.01) * Math.sin(phi) * Math.cos(theta);
+  const y = (GLOBE_RADIUS + 0.01) * Math.cos(phi);
+  const z = (GLOBE_RADIUS + 0.01) * Math.sin(phi) * Math.sin(theta);
 
-  // Create marker group
-  const marker = new THREE.Group();
-
-  // Create marker pin cone
-  const coneGeometry = new THREE.ConeGeometry(
-    MARKER_SIZE * 0.5,
-    MARKER_SIZE * 2,
-    8
-  );
-  const coneMaterial = new THREE.MeshPhongMaterial({
-    color: 0xff4800,
-    emissive: 0xff4800,
-    emissiveIntensity: 0.7,
-  });
-  const cone = new THREE.Mesh(coneGeometry, coneMaterial);
-
-  // Create pulsing ring
-  const ringGeometry = new THREE.RingGeometry(
-    MARKER_SIZE * 1.2,
-    MARKER_SIZE * 1.4,
-    16
-  );
-  const ringMaterial = new THREE.MeshBasicMaterial({
-    color: 0xff4800,
+  // Create a more prominent marker
+  const markerGeometry = new THREE.SphereGeometry(0.025, 16, 16);
+  const markerMaterial = new THREE.MeshBasicMaterial({
+    color: 0xff3333,
     transparent: true,
-    opacity: 0.8,
-    side: THREE.DoubleSide,
+    opacity: 0.8
   });
-  const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-
-  // Create inner marker point (sphere)
-  const sphereGeometry = new THREE.SphereGeometry(MARKER_SIZE * 0.4, 16, 16);
-  const sphereMaterial = new THREE.MeshPhongMaterial({
-    color: 0xffff00,
-    emissive: 0xffff00,
-    emissiveIntensity: 1.0,
-    transparent: true,
-    opacity: 0.9,
-  });
-  const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-
-  // Create outer glow
-  const glowGeometry = new THREE.SphereGeometry(MARKER_SIZE * 2, 16, 16);
-  const glowMaterial = new THREE.MeshBasicMaterial({
-    color: 0xff4800,
-    transparent: true,
-    opacity: 0.2,
-    side: THREE.BackSide,
-  });
-  const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-
-  // Position elements
-  cone.position.set(0, MARKER_SIZE * 1.2, 0);
-  cone.rotation.x = Math.PI;
-  ring.position.set(0, 0, 0);
-  ring.rotation.x = Math.PI / 2;
-  sphere.position.set(0, MARKER_SIZE * 0.3, 0);
-  glow.position.set(0, 0, 0);
-
-  // Add all elements to marker group
-  marker.add(cone);
-  marker.add(ring);
-  marker.add(sphere);
-  marker.add(glow);
-
-  // Position the marker group on the globe surface
-  marker.position.set(x, y, z);
-
-  // Make the marker look at the center of the globe
-  marker.lookAt(0, 0, 0);
-
-  // Scale up the entire marker for better visibility
-  marker.scale.set(1.2, 1.2, 1.2);
-
-  // Set the global locationMarker variable
-  locationMarker = marker;
-
-  // Add marker to the gridGroup instead of scene so it rotates with the grid
-  if (globe && globe.userData.gridGroup) {
-    globe.userData.gridGroup.add(locationMarker);
-  } else {
-    // Fallback to scene if gridGroup is not available
-    scene.add(locationMarker);
+  locationMarker = new THREE.Mesh(markerGeometry, markerMaterial);
+  locationMarker.position.set(x, y, z);
+  globe.userData.markerGroup.add(locationMarker);
+  
+  // Create AT Field effect
+  createATFieldEffect(x, y, z);
+  
+  // Add a pulsing animation to the marker
+  let scale = 1.0;
+  let growing = false;
+  
+  function animateMarker() {
+    if (!locationMarker) return;
+    
+    if (growing) {
+      scale += 0.01;
+      if (scale >= 1.3) growing = false;
+    } else {
+      scale -= 0.01;
+      if (scale <= 1.0) growing = true;
+    }
+    
+    locationMarker.scale.set(scale, scale, scale);
+    requestAnimationFrame(animateMarker);
   }
   
   animateMarker();
-  
-  addTerminalLine("LOCATION MARKER DEPLOYED", "success");
-  
-  return locationMarker;
 }
 
-// Animate the location marker
-function animateMarker() {
-  if (!locationMarker) return;
-
-  // Find the elements
-  const ring = locationMarker.children[1];
-  const sphere = locationMarker.children[2];
-  const glow = locationMarker.children[3];
-
-  // Pulse animation
-  const pulseAnimation = () => {
-    const time = Date.now() * 0.001;
-
-    // Animate ring
-    ring.scale.x = 1 + Math.sin(time * 2) * 0.3;
-    ring.scale.y = 1 + Math.sin(time * 2) * 0.3;
-
-    // Animate sphere
-    sphere.scale.x = 1 + Math.sin(time * 3) * 0.2;
-    sphere.scale.y = 1 + Math.sin(time * 3) * 0.2;
-    sphere.scale.z = 1 + Math.sin(time * 3) * 0.2;
-
-    // Animate glow
-    glow.material.opacity = 0.1 + Math.abs(Math.sin(time * 1.5)) * 0.2;
-
-    // Rotate marker slightly for visibility during globe rotation
-    locationMarker.rotation.z += 0.005;
-
-    requestAnimationFrame(pulseAnimation);
-  };
-
-  pulseAnimation();
+// Create AT Field hexagonal pattern effect for selected locations
+function createATFieldEffect(x, y, z) {
+  // Remove existing AT Field if present
+  if (visualEffects.atField) {
+    scene.remove(visualEffects.atField);
+    visualEffects.atField = null;
+  }
+  
+  // Create AT Field group
+  const atFieldGroup = new THREE.Group();
+  
+  // Create a hexagonal pattern of translucent orange planes
+  const numHexagons = 12;
+  const baseSize = 0.3;
+  const hexColor = 0xff7700;
+  
+  for (let i = 0; i < numHexagons; i++) {
+    // Create hexagon geometry
+    const hexGeometry = new THREE.CircleGeometry(baseSize * (1 - i * 0.06), 6);
+    const hexMaterial = new THREE.MeshBasicMaterial({
+      color: hexColor,
+      transparent: true,
+      opacity: 0.5 - i * 0.03,
+      side: THREE.DoubleSide
+    });
+    
+    const hexagon = new THREE.Mesh(hexGeometry, hexMaterial);
+    
+    // Position hexagon in front of selected location
+    const normalVector = new THREE.Vector3(x, y, z).normalize();
+    hexagon.position.copy(normalVector.multiplyScalar(GLOBE_RADIUS + 0.02 + i * 0.02));
+    
+    // Orient hexagon to face outward from globe
+    hexagon.lookAt(0, 0, 0);
+    hexagon.rotateOnAxis(new THREE.Vector3(0, 0, 1), Math.PI / 6); // Rotate to make flat edges horizontal
+    
+    // Add to group
+    atFieldGroup.add(hexagon);
+  }
+  
+  // Store the AT Field effect
+  visualEffects.atField = atFieldGroup;
+  
+  // Add to scene
+  scene.add(atFieldGroup);
+  
+  // Animate the AT Field for 2 seconds then fade out
+  let opacity = 1.0;
+  let expanding = true;
+  
+  function animateATField() {
+    if (!visualEffects.atField) return;
+    
+    // Handle expansion for 1 second
+    if (expanding) {
+      atFieldGroup.scale.multiplyScalar(1.03);
+      
+      if (atFieldGroup.scale.x > 2.0) {
+        expanding = false;
+      }
+    } else {
+      // Then handle fade out
+      opacity -= 0.02;
+      
+      if (opacity <= 0) {
+        scene.remove(atFieldGroup);
+        visualEffects.atField = null;
+        return;
+      }
+      
+      // Update all hexagon opacities
+      atFieldGroup.children.forEach((hexagon, i) => {
+        hexagon.material.opacity = Math.max(0, (0.5 - i * 0.03) * opacity);
+      });
+    }
+    
+    requestAnimationFrame(animateATField);
+  }
+  
+  animateATField();
 }
 
 // Function to set location by coordinates and update UI/globe
@@ -1875,12 +2012,7 @@ function getIPBasedLocation() {
 
   // Use ipapi.co for IP-based geolocation
   fetch("https://ipapi.co/json/")
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`API responded with status: ${response.status}`);
-      }
-      return response.json();
-    })
+    .then((response) => response.json())
     .then((data) => {
       if (data && data.latitude && data.longitude) {
         // Set user location
@@ -2556,9 +2688,11 @@ function geocodeLocation(locationName) {
 
 // Toggle orbit camera mode
 function toggleOrbitMode(enable) {
-  orbitControls = enable;
-
+  orbitControls = enable === undefined ? !orbitControls : enable;
+  
+  // Disable cinematic mode when orbit is enabled
   if (enable) {
+    cinematicMode = false;
     // Store current camera position for returning later
     camera.userData.lastPosition = camera.position.clone();
   } else {
@@ -2568,4 +2702,437 @@ function toggleOrbitMode(enable) {
       camera.lookAt(0, 0, 0);
     }
   }
+}
+
+// Toggle cinematic camera mode
+function toggleCinematicMode(enable) {
+  cinematicMode = enable === undefined ? !cinematicMode : enable;
+  
+  // Disable orbit controls when cinematic mode is enabled
+  if (enable) {
+    orbitControls = false;
+    // Initialize with a random view
+    switchToNextCinematicView();
+    lastCinematicViewChange = Date.now();
+    addTerminalLine("CINEMATIC CAMERA MODE ACTIVATED", "info");
+  } else {
+    addTerminalLine("CINEMATIC CAMERA MODE DEACTIVATED", "info");
+  }
+}
+
+// Get random duration between 10-15 seconds for view changes
+function getRandomViewDuration() {
+  return (25000 + Math.random() * 10000); // 25-35 seconds in milliseconds
+}
+
+// Switch to next cinematic camera view
+function switchToNextCinematicView() {
+  // Don't switch views if we're in a manual camera transition
+  if (inCameraTransition) return;
+  
+  // Check if we have valid views
+  if (!cinematicViews || cinematicViews.length === 0) {
+    console.error("No cinematic views defined");
+    return;
+  }
+  
+  // Get a random view that's different from the current one
+  let nextView;
+  do {
+    nextView = Math.floor(Math.random() * cinematicViews.length);
+  } while (nextView === currentCinematicView && cinematicViews.length > 1);
+  
+  currentCinematicView = nextView;
+  console.log("Transitioning to view:", cinematicViews[currentCinematicView].name);
+  transitionToCinematicView(cinematicViews[currentCinematicView]);
+}
+
+// Define cinematic object to hold views and settings
+const cinematic = {
+  views: [],
+  currentView: 0,
+  lastChange: 0
+};
+
+// Define cinematic camera views
+const cinematicViews = [
+  // Earth Close-up - dramatic viewing angle
+  {
+    position: new THREE.Vector3(1.8, 0.8, 1.8),
+    target: new THREE.Vector3(0, 0, 0),
+    name: "TACTICAL VIEW ALPHA",
+    easing: "easeOutQuart"
+  },
+  // Moon Tracking - see moon orbiting earth
+  {
+    position: new THREE.Vector3(0, 3, 6),
+    target: new THREE.Vector3(MOON_DISTANCE * 0.3, 0, 0),
+    name: "LUNAR OBSERVATION MODE",
+    easing: "easeInOutQuad"
+  },
+  // Sun and Earth - see earth illuminated by sun
+  {
+    position: new THREE.Vector3(8, 3, 8),
+    target: new THREE.Vector3(0, 0, 0),
+    name: "SOLAR ALIGNMENT VIEW",
+    easing: "easeInOutQuad"
+  },
+  // Polar View - looking down at earth from above
+  {
+    position: new THREE.Vector3(0, 5, 0.1),
+    target: new THREE.Vector3(0, 0, 0),
+    name: "TACTICAL ZENITH POSITION",
+    easing: "easeInOutSine"
+  },
+  // Celestial System - view of earth, moon and sun together
+  {
+    position: new THREE.Vector3(10, 5, 10),
+    target: new THREE.Vector3(2, 0, 0),
+    name: "CELESTIAL TRINITY ALIGNMENT",
+    easing: "easeInOutExpo"
+  },
+  // Dramatic Angle - low angle view of earth and moon
+  {
+    position: new THREE.Vector3(3, -2, 5),
+    target: new THREE.Vector3(0, 0, 0),
+    name: "STRATEGIC OBSERVER MODE",
+    easing: "easeOutQuart"
+  },
+  // Terminator Line - view of night/day boundary
+  {
+    position: new THREE.Vector3(-1, 0.5, 3),
+    target: new THREE.Vector3(0, 0, 0),
+    name: "TERMINATOR LINE OBSERVATION",
+    easing: "easeInOutQuad"
+  }
+];
+
+// Set the available cinematic views
+cinematic.views = cinematicViews;
+
+// Start in a random view
+currentCinematicView = Math.floor(Math.random() * cinematicViews.length);
+  
+// Create HUD overlay
+createHudOverlay();
+  
+// Initialize with current view
+transitionToCinematicView(cinematicViews[currentCinematicView]);
+lastCinematicViewChange = Date.now();
+
+// Create NERV-style HUD overlay
+function createHudOverlay() {
+  // Create container for HUD elements
+  const hudContainer = document.createElement('div');
+  hudContainer.id = 'eva-hud-overlay';
+  hudContainer.style.position = 'absolute';
+  hudContainer.style.top = '0';
+  hudContainer.style.left = '0';
+  hudContainer.style.width = '100%';
+  hudContainer.style.height = '100%';
+  hudContainer.style.pointerEvents = 'none';
+  hudContainer.style.fontFamily = 'monospace';
+  hudContainer.style.color = '#00ffaa';
+  hudContainer.style.textShadow = '0 0 5px rgba(0, 255, 170, 0.8)';
+  hudContainer.style.zIndex = '10';
+  
+  // Add to DOM
+  document.getElementById('globe-canvas').appendChild(hudContainer);
+  
+  // Create status readout panel
+  const statusPanel = document.createElement('div');
+  statusPanel.id = 'eva-status-panel';
+  statusPanel.style.position = 'absolute';
+  statusPanel.style.top = '20px';
+  statusPanel.style.right = '20px';
+  statusPanel.style.padding = '10px';
+  statusPanel.style.border = '1px solid #00ffaa';
+  statusPanel.style.backgroundColor = 'rgba(0, 20, 40, 0.7)';
+  statusPanel.style.fontSize = '12px';
+  statusPanel.style.lineHeight = '1.5';
+  statusPanel.style.textAlign = 'right';
+  statusPanel.innerHTML = `
+    <div style="font-size:14px;margin-bottom:5px;color:#ff9900">NERV TACTICAL DISPLAY</div>
+    <div id="eva-view-name">VIEW: INITIALIZING</div>
+    <div id="eva-time-display">TIME: SYNCHRONIZING</div>
+    <div id="eva-location-display">LOCATION: SCANNING</div>
+    <div id="eva-moon-phase">MOON PHASE: CALCULATING</div>
+  `;
+  hudContainer.appendChild(statusPanel);
+  
+  // Start HUD update loop
+  updateHud();
+}
+
+// Update HUD information
+function updateHud() {
+  // Update view name
+  if (cinematicViews[currentCinematicView]) {
+    document.getElementById('eva-view-name').textContent = `VIEW: ${cinematicViews[currentCinematicView].name}`;
+  }
+  
+  // Update time display
+  const now = new Date();
+  const timeString = now.toTimeString().split(' ')[0];
+  document.getElementById('eva-time-display').textContent = `TIME: ${timeString}`;
+  
+  // Update location display
+  document.getElementById('eva-location-display').textContent = `LOCATION: ${locationName}`;
+  
+  // Update moon phase
+  const phaseNames = [
+    "NEW MOON", "WAXING CRESCENT", "FIRST QUARTER",
+    "WAXING GIBBOUS", "FULL MOON", "WANING GIBBOUS",
+    "LAST QUARTER", "WANING CRESCENT"
+  ];
+  const phaseIndex = Math.floor((moonPhase / (2 * Math.PI)) * 8) % 8;
+  document.getElementById('eva-moon-phase').textContent = `MOON PHASE: ${phaseNames[phaseIndex]}`;
+  
+  // Continue updating
+  requestAnimationFrame(updateHud);
+}
+
+// Transition to a specific cinematic view
+function transitionToCinematicView(view, useCut = false) {
+  if (!view) {
+    console.error("View is undefined in transitionToCinematicView");
+    return;
+  }
+  
+  inCameraTransition = true;
+  
+  // Get current camera position and target
+  const startPos = camera.position.clone();
+  const startTarget = new THREE.Vector3(0, 0, 0);
+  camera.getWorldDirection(startTarget);
+  startTarget.multiplyScalar(100).add(camera.position);
+  
+  // Get target position and look at point
+  const targetPos = view.getPosition ? view.getPosition() : (view.position || new THREE.Vector3(0, 0, 0));
+  const targetLookAt = view.getLookAt ? view.getLookAt() : (view.target || new THREE.Vector3(0, 0, 0));
+  
+  // Generate a subtle random variation to prevent exact repetition
+  const variation = 0.1;  // 10% variation
+  const randomizedPos = {
+    x: targetPos.x * (1 + (Math.random() * variation * 2 - variation)),
+    y: targetPos.y * (1 + (Math.random() * variation * 2 - variation)),
+    z: targetPos.z * (1 + (Math.random() * variation * 2 - variation))
+  };
+  
+  // If using a cut transition, simply set the camera position and exit
+  if (useCut) {
+    camera.position.set(randomizedPos.x, randomizedPos.y, randomizedPos.z);
+    camera.lookAt(targetLookAt.x, targetLookAt.y, targetLookAt.z);
+    inCameraTransition = false;
+    return;
+  }
+  
+  // Setup transition
+  const duration = view.duration || 2000;
+  const startTime = Date.now();
+  
+  function updateCameraTransition() {
+    const elapsed = Date.now() - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Apply easing based on the view's easing function or default
+    let easedProgress;
+    switch (view.easing) {
+      case "easeInOutQuad":
+        easedProgress = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        break;
+      case "easeOutCubic":
+        easedProgress = 1 - Math.pow(1 - progress, 3);
+        break;
+      case "easeInOutCubic":
+        easedProgress = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        break;
+      case "easeInOutSine":
+        easedProgress = -(Math.cos(Math.PI * progress) - 1) / 2;
+        break;
+      case "easeOutQuart":
+        easedProgress = 1 - Math.pow(1 - progress, 4);
+        break;
+      case "easeInOutExpo":
+        easedProgress = progress === 0 ? 0 : progress === 1 ? 1 : (2 - Math.pow(2, -20 * progress + 10)) / 2;
+        break;
+      default:
+        easedProgress = progress;
+    }
+    
+    // Interpolate camera position
+    camera.position.x = startPos.x + (randomizedPos.x - startPos.x) * easedProgress;
+    camera.position.y = startPos.y + (randomizedPos.y - startPos.y) * easedProgress;
+    camera.position.z = startPos.z + (randomizedPos.z - startPos.z) * easedProgress;
+    
+    // Interpolate look at point
+    const currentLookAt = new THREE.Vector3(
+      startTarget.x + (targetLookAt.x - startTarget.x) * easedProgress,
+      startTarget.y + (targetLookAt.y - startTarget.y) * easedProgress,
+      startTarget.z + (targetLookAt.z - startTarget.z) * easedProgress
+    );
+    
+    camera.lookAt(currentLookAt);
+    
+    if (progress < 1) {
+      requestAnimationFrame(updateCameraTransition);
+    } else {
+      // Ensure final position is exactly as specified
+      camera.position.set(randomizedPos.x, randomizedPos.y, randomizedPos.z);
+      camera.lookAt(targetLookAt.x, targetLookAt.y, targetLookAt.z);
+      inCameraTransition = false;
+    }
+  }
+  
+  updateCameraTransition();
+}
+
+// Helper function to safely decode base64 strings
+function safeAtob(str) {
+  try {
+    // Make sure the string has valid base64 characters
+    // Replace any invalid characters with proper base64 padding
+    const cleanedStr = str.replace(/[^A-Za-z0-9+/=]/g, '');
+    
+    // Ensure proper padding
+    let paddedStr = cleanedStr;
+    while (paddedStr.length % 4 !== 0) {
+      paddedStr += '=';
+    }
+    
+    return atob(paddedStr);
+  } catch (e) {
+    console.error("Error decoding base64 string:", e);
+    return "";
+  }
+}
+
+// Create random celestial phenomena (comets, shooting stars)
+function createCelestialPhenomena() {
+  // Create comets
+  for (let i = 0; i < 3; i++) {
+    createComet(i);
+  }
+  
+  // Schedule shooting stars to appear randomly
+  setInterval(createShootingStar, 10000); // Create a shooting star every 10 seconds
+}
+
+// Create a comet
+function createComet(index) {
+  // Create comet head
+  const cometGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+  const cometMaterial = new THREE.MeshBasicMaterial({
+    color: 0x88aaff,
+    transparent: true,
+    opacity: 0.8
+  });
+  
+  const comet = new THREE.Mesh(cometGeometry, cometMaterial);
+  
+  // Create comet tail
+  const tailGeometry = new THREE.BufferGeometry();
+  const tailVertices = [];
+  const tailColors = [];
+  
+  // Generate tail points
+  const tailLength = 20 + Math.floor(Math.random() * 30); // 20-50 points
+  
+  for (let i = 0; i < tailLength; i++) {
+    // Tail extends behind the comet
+    tailVertices.push(0, 0, i * 0.04);
+    
+    // Fade out along the tail
+    const opacity = 1 - (i / tailLength);
+    tailColors.push(0.6, 0.8, 1, opacity);
+  }
+  
+  tailGeometry.setAttribute('position', new THREE.Float32BufferAttribute(tailVertices, 3));
+  tailGeometry.setAttribute('color', new THREE.Float32BufferAttribute(tailColors, 4));
+  
+  const tailMaterial = new THREE.PointsMaterial({
+    size: 0.03,
+    transparent: true,
+    vertexColors: true,
+    blending: THREE.AdditiveBlending
+  });
+  
+  const tail = new THREE.Points(tailGeometry, tailMaterial);
+  comet.add(tail);
+  
+  // Position comet in a wide orbit
+  const orbitRadius = 15 + Math.random() * 10; // 15-25
+  const orbitSpeed = 0.0001 + Math.random() * 0.0001; // 0.0001-0.0002
+  const startAngle = Math.random() * Math.PI * 2;
+  const orbitTilt = Math.random() * Math.PI / 2;
+  const orbitDirection = Math.random() > 0.5 ? 1 : -1;
+  
+  // Store comet data
+  const cometData = {
+    mesh: comet,
+    orbit: {
+      radius: orbitRadius,
+      speed: orbitSpeed,
+      angle: startAngle,
+      tilt: orbitTilt,
+      direction: orbitDirection
+    }
+  };
+  
+  visualEffects.comets.push(cometData);
+  scene.add(comet);
+}
+
+// Create a shooting star
+function createShootingStar() {
+  // Only create if we're not in a camera transition
+  if (inCameraTransition) return;
+  
+  // Create shooting star geometry
+  const geometry = new THREE.BufferGeometry();
+  const material = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.8,
+    blending: THREE.AdditiveBlending
+  });
+  
+  // Random starting position (far from Earth)
+  const startDistance = 20 + Math.random() * 10;
+  const startDir = new THREE.Vector3(
+    Math.random() - 0.5,
+    Math.random() - 0.5,
+    Math.random() - 0.5
+  ).normalize();
+  
+  const startPos = startDir.clone().multiplyScalar(startDistance);
+  
+  // Random end position
+  const endOffset = new THREE.Vector3(
+    (Math.random() - 0.5) * 5,
+    (Math.random() - 0.5) * 5,
+    (Math.random() - 0.5) * 5
+  );
+  const endPos = startPos.clone().sub(startDir.clone().multiplyScalar(5)).add(endOffset);
+  
+  // Create line
+  const vertices = [
+    startPos.x, startPos.y, startPos.z,
+    endPos.x, endPos.y, endPos.z
+  ];
+  
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  
+  const shootingStar = new THREE.Line(geometry, material);
+  
+  // Animation properties
+  const duration = 1 + Math.random() * 1.5; // 1-2.5 seconds
+  const shootingStarData = {
+    mesh: shootingStar,
+    startTime: Date.now(),
+    duration: duration * 1000 // convert to ms
+  };
+  
+  visualEffects.shootingStars.push(shootingStarData);
+  scene.add(shootingStar);
 }
