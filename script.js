@@ -1668,7 +1668,8 @@ function simulateCelestialData() {
   const synodic = 29.530588853; // Synodic month in days
   const elapsed = (now - epochDate) / (1000 * 60 * 60 * 24); // Days since epoch
   const cyclePosition = (elapsed % synodic) / synodic; // Position in cycle (0 to 1)
-  moonPhase = cyclePosition * Math.PI * 2; // Fractional part represents phase as radians
+  // Store moon phase as a fraction (0 to 1)
+  moonPhase = cyclePosition;
 
   // Remove loading classes after a short delay (simulating API call)
   setTimeout(() => {
@@ -2885,7 +2886,7 @@ function updateHud() {
     "WAXING GIBBOUS", "FULL MOON", "WANING GIBBOUS",
     "LAST QUARTER", "WANING CRESCENT"
   ];
-  const phaseIndex = Math.floor((moonPhase / (2 * Math.PI)) * 8) % 8;
+  const phaseIndex = Math.floor(moonPhase * 8) % 8;
   document.getElementById('eva-moon-phase').textContent = `MOON PHASE: ${phaseNames[phaseIndex]}`;
   
   // Continue updating
