@@ -732,6 +732,49 @@ footer {
     }
 }
 
+@media (max-width: 480px) {
+    body {
+        height: auto;
+        overflow-y: auto;
+    }
+
+    main {
+        flex-direction: column;
+    }
+
+    .left-panel, .right-panel, .center-panel {
+        width: 100%;
+        margin: 0.5rem 0;
+    }
+
+    .globe-container {
+        height: 35vh;
+    }
+
+    .data-item {
+        font-size: 0.7rem;
+    }
+
+    .system-header h1 {
+        font-size: 1rem;
+    }
+
+    .panel-header h2 {
+        font-size: 1rem;
+    }
+
+    .warning-indicator {
+        font-size: 0.6rem;
+        padding: 0.2rem 0.4rem;
+    }
+
+    .eva-button {
+        width: 20px;
+        height: 20px;
+        font-size: 0.7rem;
+    }
+}
+
 /* Additional NGE-style Elements */
 .data-item::before {
     content: '>';
